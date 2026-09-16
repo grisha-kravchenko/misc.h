@@ -6,6 +6,7 @@
 
 # ifdef MISC_VECTOR
 # include <stddef.h>
+#include <stdlib.h>
 
 /// length, capacity, a, b, ...
 ///                   ^ pointer
@@ -28,6 +29,22 @@ typedef struct {
     .data = {__VA_ARGS__}                                                        \
 }) + 1)
 
+# define vec_count(vector) (((MISC_Vector_Header*)(vector) - 1) -> count)
+
+/// Allocates the vector with specified size
+/// NOTICE: vectors allocated by it MUST be destroyed using vec_destroy
+static inline void* vec_alloc(size_t sizeof_value, size_t capacity) {
+    MISC_Vector_Header* header = malloc(sizeof(MISC_Vector_Header) + sizeof_value * capacity);
+    if (header == NULL) return NULL;
+    header -> count = 0;
+    header -> capacity = capacity;
+    return header + 1;
+}
+
+/// All the vectors made in the way besides vec_new must be destroyed,
+/// but due to their internal complexity regular free() won't work
+# define vec_destroy(vector) (vector != NULL) ? free((MISC_Vector_Header*)(vector) - 1) : NULL
+
 # endif
 
 # ifdef MISC_VECTOR_IMPLEMENTATION
@@ -38,5 +55,13 @@ typedef struct {
 # endif
 
 // int main(void) {
-//     int* test = vec_new(int, 1 + 2, 2);
+// #include <stdio.h>
+//     int* test = vec_new(int, 1 + 2, 2, 5);
+//     printf("%lu\n", vec_count(test));
+//     vec_count(test) = 1;
+//     printf("%lu\n", vec_count(test));
+//
+//     int* test2 = vec_alloc(sizeof(int), 5);
+//     printf("%lu\n", vec_count(test2));
+//     vec_destroy(test2);
 // }
