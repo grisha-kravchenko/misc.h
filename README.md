@@ -1,4 +1,4 @@
-# misc.h - small miscelaneous C library
+# misc.h - small miscellaneous C library
 This is a small C library containing some small features for
 future usage simplicity. It is intendedd for personal use.
 
