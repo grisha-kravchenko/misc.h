@@ -1,13 +1,20 @@
 # if 0 // testing
 # define MISC_VECTOR
+# define MISC_SYSTEM
+# define MISC_BUILD
 # define MISC_IMPLEMENTATIONS
 # endif
 
 # ifndef MISC_LIBRARY_IMPORT
 # define MISC_LIBRARY_IMPORT
 
-# ifdef MISC_VECTOR
+// dependencies
+# ifdef MISC_BUILD
+# define MISC_SYSTEM
+# define MISC_VECTOR
+# endif
 
+# ifdef MISC_VECTOR
 # ifndef MISC_VECTOR_INITIAL_CAPACITY
 # define MISC_VECTOR_INITIAL_CAPACITY 10
 # endif
@@ -61,7 +68,7 @@ typedef struct {
 # define vec_contact_vec(vector, other) \
     if (other != NULL) vec_concat_array((vector), (other), vec_count(other))
 
-// vec_from_array(type, array, count) vec_alloc(sizeof(type), size_t capacity)
+# define vec_from_array(array, count) vec_alloc(sizeof(array[0]), count)
 
 /// All the vectors made in the way besides vec_new must be destroyed,
 /// but due to their internal complexity regular free() won't work
@@ -102,9 +109,44 @@ char* vec_concat_string(char** vector) {
     return string;
 }
 
-# endif
+# endif // MISC_IMPLEMENTATIONS
+# endif // MISC_VECTOR
 
-# endif
+// NOTE: only linux systems is currently supported.
+# ifdef MISC_SYSTEM
+# include <unistd.h>
+# include <sys/wait.h>
+# include <string.h>
+
+int run_process(char* program, int argc, char** argv);
+
+# ifdef MISC_IMPLEMENTATIONS
+
+// -1 for fork error, otherwise status code.
+int run_process(char* program, int argc, char** argv) {
+    int pid = fork();
+    if (pid < 0) return -1;
+    else if (pid > 0) {
+        int status = 0;
+        wait(&status);
+        return status;
+    }
+
+    // child process
+    char* arguments[argc + 1];
+    memcpy(arguments, argv, argc);
+    arguments[argc] = NULL; // NULL terminate the arguments list
+
+    execvp(program, arguments);
+    exit(0);
+}
+
+# endif // MISC_IMPLEMENTATIONS
+# endif // MISC_SYSTEM
+
+// NOTE: only linux systems is currently supported.
+# ifdef MISC_BUILD
+# endif // MISC_BUILD
 
 # ifdef MISC_IMPLEMENTATIONS
 # undef MISC_IMPLEMENTATIONS
