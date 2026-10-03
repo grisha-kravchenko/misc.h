@@ -29,7 +29,7 @@
 
 typedef struct {
     size_t count;
-    size_t capacity;
+    size_t capacity; // max amount of items that can be stored, NOT bytes
 } MISC_Vector_Header; // Datatype to prefix the vector
 
 /// Simple way to create stack based vector.
@@ -74,14 +74,23 @@ typedef struct {
 /// but due to their internal complexity regular free() won't work
 # define vec_destroy(vector) (vector != NULL) ? free((MISC_Vector_Header*)(vector) - 1) : NULL
 
+# define vec_ensure_alloc(vector) (vector != NULL) ? vec_ensure_alloc_func(vector, sizeof(*vector)) : NULL
+
+/// Allocates the vector with specified size
+/// NOTICE: vectors allocated by it MUST be destroyed using vec_destroy
 void* vec_alloc(size_t sizeof_value, size_t capacity);
+
+/// Reallocates the vector with specified size
 void* vec_realloc(size_t sizeof_value, size_t new_capacity, void* vector);
+
+/// Ensures the vector is allocated is allocated on heap, *reallocates* the vector
+void* vec_ensure_alloc_func(void* vector, size_t sizeof_value);
+
+/// Concatinates a vector of strings into a single string, must be *freed* afterwards
 char* vec_concat_string(char** vector);
 
 # ifdef MISC_IMPLEMENTATIONS
 
-/// Allocates the vector with specified size
-/// NOTICE: vectors allocated by it MUST be destroyed using vec_destroy
 void* vec_alloc(size_t sizeof_value, size_t capacity) {
     MISC_Vector_Header* header = malloc(sizeof(MISC_Vector_Header) + sizeof_value * capacity);
     if (header == NULL) return NULL;
@@ -90,7 +99,6 @@ void* vec_alloc(size_t sizeof_value, size_t capacity) {
     return header + 1;
 }
 
-/// Reallocates the vector with specified size
 void* vec_realloc(size_t sizeof_value, size_t new_capacity, void* vector) {
     MISC_Vector_Header* header = (MISC_Vector_Header*)vector - 1;
     MISC_Vector_Header* new_vec_header = realloc(header, sizeof(MISC_Vector_Header) + sizeof_value * new_capacity);
@@ -108,6 +116,13 @@ char* vec_concat_string(char** vector) {
     for (size_t i = 0; i < vec_count(vector); ++i) strcat(string, vector[i]);
     return string;
 }
+
+void* vec_ensure_alloc_func(void* vector, size_t sizeof_value) {
+    MISC_Vector_Header* header = (MISC_Vector_Header*)vector - 1;
+    MISC_Vector_Header* new_header = realloc(header, header -> capacity * sizeof_value + sizeof(MISC_Vector_Header));
+    if (new_header == NULL) return NULL;
+    return new_header + 1;
+};
 
 # endif // MISC_IMPLEMENTATIONS
 # endif // MISC_VECTOR
