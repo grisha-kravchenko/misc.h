@@ -78,15 +78,19 @@ typedef struct {
 
 /// Allocates the vector with specified size
 /// NOTICE: vectors allocated by it MUST be destroyed using vec_destroy
+/// returns NULL on allocation error
 void* vec_alloc(size_t sizeof_value, size_t capacity);
 
 /// Reallocates the vector with specified size
+/// returns NULL on allocation error
 void* vec_realloc(size_t sizeof_value, size_t new_capacity, void* vector);
 
 /// Ensures the vector is allocated is allocated on heap, *reallocates* the vector
+/// returns NULL on allocation error
 void* vec_ensure_alloc_func(void* vector, size_t sizeof_value);
 
 /// Concatinates a vector of strings into a single string, must be *freed* afterwards
+/// returns NULL on allocation error
 char* vec_concat_string(char** vector);
 
 # ifdef MISC_IMPLEMENTATIONS
@@ -129,16 +133,20 @@ void* vec_ensure_alloc_func(void* vector, size_t sizeof_value) {
 
 // NOTE: only linux systems is currently supported.
 # ifdef MISC_SYSTEM
+/// -1 for fork error, otherwise status code.
+int sys_run_process(char* program, int argc, char** argv);
+
+/// -1 for filesystem error, 0 for file not existing
+int sys_get_file_edit_time(char* file);
+
+# ifdef MISC_IMPLEMENTATIONS
 # include <unistd.h>
 # include <sys/wait.h>
 # include <string.h>
+# include <sys/stat.h>
+# include <errno.h>
 
-int run_process(char* program, int argc, char** argv);
-
-# ifdef MISC_IMPLEMENTATIONS
-
-// -1 for fork error, otherwise status code.
-int run_process(char* program, int argc, char** argv) {
+int sys_run_process(char* program, int argc, char** argv) {
     int pid = fork();
     if (pid < 0) return -1;
     else if (pid > 0) {
@@ -156,11 +164,54 @@ int run_process(char* program, int argc, char** argv) {
     exit(0);
 }
 
+int sys_get_file_edit_time(char* file) {
+    struct stat file_stat;
+    if (stat(file, &file_stat) == -1) {
+        if (errno == ENOENT) return 0;
+        return -1;
+    }
+
+    return file_stat.st_mtime;
+}
+
 # endif // MISC_IMPLEMENTATIONS
 # endif // MISC_SYSTEM
 
 // NOTE: only linux systems is currently supported.
 # ifdef MISC_BUILD
+# include <stdint.h>
+typedef struct {
+    size_t length;   // length of the list of NULL terminated strings.
+    size_t capacity; // maximum value the length field can become, NOT a byte count
+    char*  cmd[];
+} * BUILD_CMD_INNER; // inner type of the CMD used by user, needed for compiler to accept that every struct is the same
+
+typedef BUILD_CMD_INNER* CMD; // vector type, but the one that is not supposed to be used by user
+
+// After executing CMD the inner pointer shall be freed and replaced with NULL so it doesn't need to be freed afterwards
+
+/// small hacky macro
+# define cmd_new(...) (CMD)((BUILD_CMD_INNER []){cmd_new_func(sizeof((char* []) {__VA_ARGS__}) / sizeof(char*), (char* []) {__VA_ARGS__})})
+
+// /// used as `rebuild_builder(vec_new(char*, "gcc", "%", "-O2", "-o", "%"), vec_new("build.c"), vec_new("headers/header_we_rely_on.h"))`
+// /// arguments:
+// ///
+// # define rebuild_builder(cmd, sources, ...) 0
+
+BUILD_CMD_INNER cmd_new_func(size_t length, char* values[]);
+
+# ifdef MISC_IMPLEMENTATIONS
+# include <string.h>
+
+BUILD_CMD_INNER cmd_new_func(size_t length, char* values[]) {
+    BUILD_CMD_INNER cmd = malloc(sizeof(size_t) * 2 + sizeof(char*) * length);
+    cmd -> length   = length;
+    cmd -> capacity = length;
+    memcpy(cmd->cmd, values, length * sizeof(char*));
+    return cmd;
+}
+
+# endif
 # endif // MISC_BUILD
 
 # ifdef MISC_IMPLEMENTATIONS
@@ -204,5 +255,6 @@ int main(void) {
     free(string);
     vec_destroy(test4);
     vec_destroy(test3);
+    CMD a = cmd_new("a", "b");
 }
 # endif
