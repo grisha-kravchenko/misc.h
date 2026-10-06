@@ -76,6 +76,9 @@ typedef struct {
 
 # define vec_ensure_alloc(vector) (vector != NULL) ? vec_ensure_alloc_func(vector, sizeof(*vector)) : NULL
 
+/// Miscellaneous macro to get a pointer to pointer; didn't know where to put
+# define ptr_to_value(pointer) (void*)((void*[]){pointer})
+
 /// Allocates the vector with specified size
 /// NOTICE: vectors allocated by it MUST be destroyed using vec_destroy
 /// returns NULL on allocation error
@@ -134,7 +137,7 @@ void* vec_ensure_alloc_func(void* vector, size_t sizeof_value) {
 // NOTE: only linux systems is currently supported.
 # ifdef MISC_SYSTEM
 /// -1 for fork error, otherwise status code.
-int sys_run_process(char* program, int argc, char** argv);
+int sys_run_process(char* command[], int command_length);
 
 /// -1 for filesystem error, 0 for file not existing
 int sys_get_file_edit_time(char* file);
@@ -146,22 +149,29 @@ int sys_get_file_edit_time(char* file);
 # include <sys/stat.h>
 # include <errno.h>
 
-int sys_run_process(char* program, int argc, char** argv) {
+#include <stdio.h>
+int sys_run_process(char* command[], int command_length) {
     int pid = fork();
     if (pid < 0) return -1;
     else if (pid > 0) {
         int status = 0;
-        wait(&status);
-        return status;
+        for (;;) {
+            wait(&status);
+            if (WIFEXITED(status)) return WEXITSTATUS(status);
+            else wait(&status);
+        }
     }
 
     // child process
-    char* arguments[argc + 1];
-    memcpy(arguments, argv, argc);
-    arguments[argc] = NULL; // NULL terminate the arguments list
+    char *arguments[command_length + 1];
+    arguments[0] = command[0];
+    for (int i = 0; i < command_length; ++i)
+        arguments[i] = command[i];
+    arguments[command_length] = NULL;
 
-    execvp(program, arguments);
-    exit(0);
+    execvp(command[0], arguments);
+    printf("execvp");
+    _exit(127);
 }
 
 int sys_get_file_edit_time(char* file) {
@@ -193,25 +203,134 @@ typedef BUILD_CMD_INNER* CMD; // vector type, but the one that is not supposed t
 /// small hacky macro
 # define cmd_new(...) (CMD)((BUILD_CMD_INNER []){cmd_new_func(sizeof((char* []) {__VA_ARGS__}) / sizeof(char*), (char* []) {__VA_ARGS__})})
 
-// /// used as `rebuild_builder(vec_new(char*, "gcc", "%", "-O2", "-o", "%"), vec_new("build.c"), vec_new("headers/header_we_rely_on.h"))`
-// /// arguments:
-// ///
-// # define rebuild_builder(cmd, sources, ...) 0
+/// example: `rebuild_builder(argv, vec_new(char*, "build.c"), vec_new(char*, "headers/header_we_rely_on.h"))`
+/// arguments:
+/// argv    - program argv, needed for executable name
+/// sources - all source files for build script
+/// headers - headers that are used in build script that can be changed;
+///     optional; if provided - rebuilds the script also if any of them changed
+/// returns:
+///     -1 - didn't run the rebuild command
+///     anything else - command return code
+# define rebuild_builder(argv, sources, ...) rebuild_builder_cmd(argv, cmd_new("gcc", "-O2", "%", "-o", "%"), sources, __VA_ARGS__)
+
+/// same as rebuild_builder, but accepts cmd argument
+/// example: `rebuild_builder(argv, cmd_new("gcc", "%", "-O3", "-o", "%"), vec_new(char*, "build.c"), vec_new(char*, "headers/header_we_rely_on.h"))`
+/// cmd - CMD type command, accepts up to 2 "%" strings: first is replaced with all the sources and 2nd is replaced with output
+# define rebuild_builder_cmd(argv, cmd, sources, ...) rebuild_builder_func(argv, cmd, sources, sizeof((char**[]){__VA_ARGS__}) != 0 ? __VA_ARGS__ : NULL)
+
+# define cmd_push(cmd, ...) cmd_push_func(cmd, sizeof((char* []) {__VA_ARGS__}) / sizeof(char*), (char* []){__VA_ARGS__})
 
 BUILD_CMD_INNER cmd_new_func(size_t length, char* values[]);
 
+/// if cmd points to NULL (BUILD_CMD_INNER == NULL) this will allocate it.
+int cmd_push_func(CMD cmd, size_t count, char* values[]);
+
+/// runs the cmd, and then frees the inner part
+int cmd_run(CMD cmd);
+
+int rebuild_builder_func(char** argv, CMD cmd, char** sources, char** headers);
+
 # ifdef MISC_IMPLEMENTATIONS
 # include <string.h>
+# include <stdio.h>
 
 BUILD_CMD_INNER cmd_new_func(size_t length, char* values[]) {
-    BUILD_CMD_INNER cmd = malloc(sizeof(size_t) * 2 + sizeof(char*) * length);
+    BUILD_CMD_INNER cmd = malloc(sizeof(size_t) * 2 + sizeof(char*) * (length + MISC_VECTOR_INITIAL_CAPACITY));
     cmd -> length   = length;
-    cmd -> capacity = length;
+    cmd -> capacity = length + MISC_VECTOR_INITIAL_CAPACITY;
     memcpy(cmd->cmd, values, length * sizeof(char*));
     return cmd;
 }
 
-# endif
+int cmd_push_func(CMD cmd, size_t count, char* values[]) {
+    if (*cmd == NULL) {
+        *cmd = malloc((MISC_VECTOR_INITIAL_CAPACITY + count) * sizeof(char*) + sizeof(size_t) * 2);
+        (*cmd) -> capacity = MISC_VECTOR_INITIAL_CAPACITY + count;
+        (*cmd) -> length = 0;
+    }
+    if ((*cmd) -> length + count > (*cmd) -> capacity) {
+        BUILD_CMD_INNER new_cmd = realloc(*cmd, ((*cmd) -> length + count) * 2 * sizeof(char*));
+        if (!new_cmd) return 1;
+        *cmd = new_cmd;
+        (*cmd) -> capacity = ((*cmd) -> length + count) * 2;
+    };
+    memcpy((*cmd) -> cmd + (*cmd) -> length, values, count * sizeof(char*));
+    (*cmd) -> length = (*cmd) -> length + count;
+    return 0;
+}
+
+int cmd_run(CMD cmd) {
+    char** output_string = NULL;
+    vec_push(output_string, (*cmd) -> cmd[0]);
+    for (size_t i = 0; i < (*cmd) -> length - 1; ++i) {
+        vec_push(output_string, " ");
+        vec_push(output_string, (*cmd) -> cmd[i + 1]);
+        printf("%s\n", (*cmd) -> cmd[i + 1]);
+    }
+    char* cmd_string = vec_concat_string(output_string);
+    if (cmd_string == NULL) exit(1);
+
+    printf("[CMD]: %s\n", cmd_string);
+    free(cmd_string);
+    vec_destroy(output_string);
+
+    int ret = sys_run_process((*cmd) -> cmd, (*cmd) -> length);
+
+    free(*cmd);
+    *cmd = NULL;
+    return ret;
+}
+
+// TODO: make the error handling better, make the function itself better
+// TODO: copy the old argv to the new program if rebuilt
+int rebuild_builder_func(char** argv, CMD cmd, char** sources, char** headers) {
+    int should_rebuild = 0;
+    int exe_edit_time = sys_get_file_edit_time(argv[0]);
+    for (size_t i = 0; i < vec_count(sources); ++i) {
+        if (exe_edit_time < sys_get_file_edit_time(sources[i])) {
+            should_rebuild = 1;
+            break;
+        }
+    }
+    if (!should_rebuild && headers != NULL) for (size_t i = 0; i < vec_count(headers); ++i) {
+        if (exe_edit_time < sys_get_file_edit_time(headers[i])) {
+            should_rebuild = 1;
+            break;
+        }
+    }
+    if (!should_rebuild) return -1;
+
+    CMD new_cmd = ptr_to_value(NULL);
+    int j = 0;
+    for (size_t i = 0; i < (*cmd) -> length; ++i) {
+        if (strcmp((*cmd) -> cmd[i], "%") == 0) {
+            if (j == 0) cmd_push_func(new_cmd, vec_count(sources), sources);
+            else if (j == 1) cmd_push_func(new_cmd, 1, &(argv[0]));
+            else {
+                puts("[ERROR]: encountered 3rd \"%\" sign in build command");
+                exit(1);
+            }
+            ++j;
+            continue;
+        }
+        cmd_push_func(new_cmd, 1, &((*cmd) -> cmd[i]));
+    }
+    if (j == 0) puts("[WARN]: sources field was not used in the build command");
+
+    if (*new_cmd == NULL || (*new_cmd) -> length == 0) return -1;
+
+    int ret = cmd_run(new_cmd);
+    if (ret != 0) exit(1);
+    for (size_t i = 0;; ++i) {
+        if (argv[i] == NULL) break;
+        cmd_push(new_cmd, argv[i]);
+    }
+    cmd_run(new_cmd);
+    exit(0);
+}
+
+# endif // MISC_IMPLEMENTATIONS
 # endif // MISC_BUILD
 
 # ifdef MISC_IMPLEMENTATIONS
