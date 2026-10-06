@@ -1,4 +1,4 @@
-# if 0 // testing
+# if 1 // testing
 # define MISC_VECTOR
 # define MISC_SYSTEM
 # define MISC_BUILD
@@ -212,7 +212,7 @@ typedef BUILD_CMD_INNER* CMD; // vector type, but the one that is not supposed t
 /// returns:
 ///     -1 - didn't run the rebuild command
 ///     anything else - command return code
-# define rebuild_builder(argv, sources, ...) rebuild_builder_cmd(argv, cmd_new("gcc", "-O2", "%", "-o", "%"), sources, __VA_ARGS__)
+# define rebuild_builder(argv, sources, ...) rebuild_builder_func(argv, cmd_new("gcc", "%", "-o", "%"), sources, sizeof((char**[]){__VA_ARGS__}) != 0 ? __VA_ARGS__ : NULL)
 
 /// same as rebuild_builder, but accepts cmd argument
 /// example: `rebuild_builder(argv, cmd_new("gcc", "%", "-O3", "-o", "%"), vec_new(char*, "build.c"), vec_new(char*, "headers/header_we_rely_on.h"))`
@@ -266,7 +266,6 @@ int cmd_run(CMD cmd) {
     for (size_t i = 0; i < (*cmd) -> length - 1; ++i) {
         vec_push(output_string, " ");
         vec_push(output_string, (*cmd) -> cmd[i + 1]);
-        printf("%s\n", (*cmd) -> cmd[i + 1]);
     }
     char* cmd_string = vec_concat_string(output_string);
     if (cmd_string == NULL) exit(1);
@@ -283,7 +282,6 @@ int cmd_run(CMD cmd) {
 }
 
 // TODO: make the error handling better, make the function itself better
-// TODO: copy the old argv to the new program if rebuilt
 int rebuild_builder_func(char** argv, CMD cmd, char** sources, char** headers) {
     int should_rebuild = 0;
     int exe_edit_time = sys_get_file_edit_time(argv[0]);
